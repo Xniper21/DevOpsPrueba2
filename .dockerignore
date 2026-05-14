@@ -1,0 +1,46 @@
+# Java
+target/
+*.class
+*.jar
+*.war
+*.ear
+.classpath
+.project
+.settings/
+.idea/
+*.iml
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+dist/
+.vite/
+
+# Environment
+.env
+.env.local
+.env*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+*.swp
+*.swo
+*~
+
+# Git
+.git
+.gitignore
+
+# Docker
+.dockerignore
+Dockerfile*
+
+# Build artifacts
+build/
+out/
+*.log

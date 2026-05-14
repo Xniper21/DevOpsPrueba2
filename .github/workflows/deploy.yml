@@ -1,0 +1,140 @@
+name: Deploy to AWS EC2
+
+on:
+  push:
+    branches:
+      - deploy
+
+env:
+  DOCKERHUB_REPO: ${{ secrets.DOCKERHUB_REPO }}
+  FRONTEND_IMAGE: ${{ secrets.DOCKERHUB_REPO }}/innovatech-frontend
+  VENTAS_IMAGE: ${{ secrets.DOCKERHUB_REPO }}/innovatech-ventas
+  DESPACHO_IMAGE: ${{ secrets.DOCKERHUB_REPO }}/innovatech-despacho
+
+jobs:
+  build_and_push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build ventas backend image
+        run: |
+          docker build -t ${{ env.VENTAS_IMAGE }}:${{ github.sha }} ./back-Ventas_SpringBoot/Springboot-API-REST
+
+      - name: Build despacho backend image
+        run: |
+          docker build -t ${{ env.DESPACHO_IMAGE }}:${{ github.sha }} ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
+
+      - name: Build frontend image
+        run: |
+          docker build \
+            --build-arg VITE_API_URL_VENTAS=http://ventas-api:8080 \
+            --build-arg VITE_API_URL_DESPACHOS=http://despacho-api:8081 \
+            -t ${{ env.FRONTEND_IMAGE }}:${{ github.sha }} \
+            ./front_despacho
+
+      - name: Push images to Docker Hub
+        run: |
+          docker push ${{ env.VENTAS_IMAGE }}:${{ github.sha }}
+          docker push ${{ env.DESPACHO_IMAGE }}:${{ github.sha }}
+          docker push ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
+
+  deploy:
+    needs: build_and_push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_SSH_PORT || '22' }}
+          script: |
+            mkdir -p ~/innovatech-app
+            cd ~/innovatech-app
+            cat > docker-compose.yml <<'EOF'
+            version: '3.9'
+            services:
+              mysql:
+                image: mysql:8.0
+                restart: unless-stopped
+                environment:
+                  MYSQL_ROOT_PASSWORD: rootpassword
+                  MYSQL_DATABASE: innovatechdb
+                  MYSQL_USER: innovatech
+                  MYSQL_PASSWORD: innovatech123
+                volumes:
+                  - mysql_data:/var/lib/mysql
+                networks:
+                  - innovatech
+
+              ventas-api:
+                image: ${{ env.VENTAS_IMAGE }}:${{ github.sha }}
+                restart: unless-stopped
+                ports:
+                  - "8080:8080"
+                environment:
+                  DB_ENDPOINT: mysql
+                  DB_PORT: 3306
+                  DB_NAME: innovatechdb
+                  DB_USERNAME: innovatech
+                  DB_PASSWORD: innovatech123
+                depends_on:
+                  - mysql
+                networks:
+                  - innovatech
+
+              despacho-api:
+                image: ${{ env.DESPACHO_IMAGE }}:${{ github.sha }}
+                restart: unless-stopped
+                ports:
+                  - "8081:8081"
+                environment:
+                  DB_ENDPOINT: mysql
+                  DB_PORT: 3306
+                  DB_NAME: innovatechdb
+                  DB_USERNAME: innovatech
+                  DB_PASSWORD: innovatech123
+                depends_on:
+                  - mysql
+                networks:
+                  - innovatech
+
+              frontend:
+                image: ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
+                restart: unless-stopped
+                ports:
+                  - "80:80"
+                depends_on:
+                  - ventas-api
+                  - despacho-api
+                networks:
+                  - innovatech
+
+            networks:
+              innovatech:
+
+            volumes:
+              mysql_data:
+            EOF
+            docker compose pull
+            docker compose up -d --remove-orphans
