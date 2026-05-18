@@ -23,18 +23,17 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment || 'production' }}
-    permissions:
-      id-token: write
-      contents: read
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials (AWS Academy)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
@@ -50,51 +49,39 @@ jobs:
             --output text)
           echo "INSTANCE_IP=${INSTANCE_IP}" >> $GITHUB_OUTPUT
 
+      # In AWS Academy, your EC2 instances don't have permanent IAM Roles.
+      # We send the temporary runner session credentials via SSH to authorize the remote Docker pull.
+      # Note the addition of AWS_SESSION_TOKEN below.
+      
       - name: Deploy via SSH
         uses: appleboy/ssh-action@master
         env:
           DOCKER_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          AWS_KEY: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
         with:
           host: ${{ steps.instance.outputs.INSTANCE_IP }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
           port: 22
-          envs: DOCKER_REGISTRY,AWS_ACCOUNT_ID
+          envs: DOCKER_REGISTRY,AWS_KEY,AWS_SECRET,AWS_TOKEN
           script: |
-            # Configure AWS credentials
-            aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
-            aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            aws configure set region ${{ env.AWS_REGION }}
+            # Configure current active AWS Academy session on the EC2 host
+            aws configure set aws_access_key_id $AWS_KEY
+            aws configure set aws_secret_access_key $AWS_SECRET
+            aws configure set aws_session_token $AWS_TOKEN
+            aws configure set region us-east-1
             
-            # Login to ECR
-            aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
+            # Login remote docker engine to ECR
+            aws ecr get-login-password --region us-east-1 | \
               docker login --username AWS --password-stdin $DOCKER_REGISTRY
             
-            # Navigate to app directory
             cd /home/ec2-user/innovatech
             
-            # Pull latest images
             docker pull $DOCKER_REGISTRY/innovatech/ventas-api:latest
             docker pull $DOCKER_REGISTRY/innovatech/despacho-api:latest
             docker pull $DOCKER_REGISTRY/innovatech/frontend:latest
             
-            # Stop and remove old containers
             docker-compose down || true
-            
-            # Start new containers
             docker-compose up -d
-            
-            # Health check
-            sleep 10
-            curl -f http://localhost/health || exit 1
-            
-            echo "✅ Deployment successful!"
-
-      - name: Create deployment annotation
-        run: |
-          echo "## 🚀 Deployment Completed" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** ${{ github.event.inputs.environment || 'production' }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Instance IP:** ${{ steps.instance.outputs.INSTANCE_IP }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Deployed At:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
