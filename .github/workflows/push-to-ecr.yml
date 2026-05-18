@@ -9,6 +9,9 @@ on:
 env:
   AWS_REGION: us-east-1
   REGISTRY_ALIAS: innovatech
+  ECR_REPOSITORY_VENTAS: innovatech/ventas-api
+  ECR_REPOSITORY_DESPACHO: innovatech/despacho-api
+  ECR_REPOSITORY_FRONTEND: innovatech/frontend
 
 jobs:
   build-and-push:
@@ -50,8 +53,9 @@ jobs:
           context: ./back-Ventas_SpringBoot/Springboot-API-REST
           push: true
           tags: |
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.REGISTRY_ALIAS }}/ventas-api:latest
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.REGISTRY_ALIAS }}/ventas-api:${{ steps.build-tag.outputs.VERSION }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_VENTAS }}:latest
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_VENTAS }}:${{ steps.build-tag.outputs.VERSION }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_VENTAS }}:v1.0.${{ github.run_number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -62,8 +66,9 @@ jobs:
           context: ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
           push: true
           tags: |
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.REGISTRY_ALIAS }}/despacho-api:latest
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.REGISTRY_ALIAS }}/despacho-api:${{ steps.build-tag.outputs.VERSION }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_DESPACHO }}:latest
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_DESPACHO }}:${{ steps.build-tag.outputs.VERSION }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_DESPACHO }}:v1.0.${{ github.run_number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -77,10 +82,18 @@ jobs:
             VITE_API_URL_VENTAS=${{ secrets.VITE_API_URL_VENTAS }}
             VITE_API_URL_DESPACHOS=${{ secrets.VITE_API_URL_DESPACHOS }}
           tags: |
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.REGISTRY_ALIAS }}/frontend:latest
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.REGISTRY_ALIAS }}/frontend:${{ steps.build-tag.outputs.VERSION }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_FRONTEND }}:latest
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_FRONTEND }}:${{ steps.build-tag.outputs.VERSION }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_FRONTEND }}:v1.0.${{ github.run_number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Create ECR repositories (if not exist)
+        run: |
+          for repo in ${{ env.ECR_REPOSITORY_VENTAS }} ${{ env.ECR_REPOSITORY_DESPACHO }} ${{ env.ECR_REPOSITORY_FRONTEND }}; do
+            aws ecr describe-repositories --repository-names $repo --region ${{ env.AWS_REGION }} 2>/dev/null || \
+            aws ecr create-repository --repository-name $repo --region ${{ env.AWS_REGION }}
+          done
 
       - name: Create deployment summary
         run: |
@@ -90,6 +103,6 @@ jobs:
           echo "**Tag:** ${{ steps.build-tag.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Services" >> $GITHUB_STEP_SUMMARY
-          echo "- \`ventas-api:${{ steps.build-tag.outputs.VERSION }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`despacho-api:${{ steps.build-tag.outputs.VERSION }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`frontend:${{ steps.build-tag.outputs.VERSION }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.ECR_REPOSITORY_VENTAS }}:${{ steps.build-tag.outputs.VERSION }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.ECR_REPOSITORY_DESPACHO }}:${{ steps.build-tag.outputs.VERSION }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.ECR_REPOSITORY_FRONTEND }}:${{ steps.build-tag.outputs.VERSION }}\`" >> $GITHUB_STEP_SUMMARY

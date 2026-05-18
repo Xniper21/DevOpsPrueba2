@@ -37,9 +37,9 @@ jobs:
           context: ./back-Ventas_SpringBoot/Springboot-API-REST
           push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           tags: |
-            ${{ env.REGISTRY }}/${{ github.repository }}/ventas-api:latest
-            ${{ env.REGISTRY }}/${{ github.repository }}/ventas-api:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ github.repository }}/ventas-api:v1.0.${{ github.run_number }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/ventas-api:latest
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/ventas-api:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/ventas-api:v1.0.${{ github.run_number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -50,9 +50,9 @@ jobs:
           context: ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
           push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           tags: |
-            ${{ env.REGISTRY }}/${{ github.repository }}/despacho-api:latest
-            ${{ env.REGISTRY }}/${{ github.repository }}/despacho-api:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ github.repository }}/despacho-api:v1.0.${{ github.run_number }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/despacho-api:latest
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/despacho-api:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/despacho-api:v1.0.${{ github.run_number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -66,9 +66,9 @@ jobs:
             VITE_API_URL_VENTAS=https://api.innovatech.com/api/ventas
             VITE_API_URL_DESPACHOS=https://api.innovatech.com/api/despachos
           tags: |
-            ${{ env.REGISTRY }}/${{ github.repository }}/frontend:latest
-            ${{ env.REGISTRY }}/${{ github.repository }}/frontend:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ github.repository }}/frontend:v1.0.${{ github.run_number }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/frontend:latest
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/frontend:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/frontend:v1.0.${{ github.run_number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

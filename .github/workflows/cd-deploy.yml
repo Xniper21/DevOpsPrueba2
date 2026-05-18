@@ -1,0 +1,246 @@
+name: CD - Deploy to AWS (Main)
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened, labeled]
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  REGISTRY_ALIAS: innovatech
+  ECR_REPOSITORY_VENTAS: innovatech/ventas-api
+  ECR_REPOSITORY_DESPACHO: innovatech/despacho-api
+  ECR_REPOSITORY_FRONTEND: innovatech/frontend
+
+jobs:
+  # ==================== BUILD AND PUSH TO ECR ====================
+  build-and-push-ecr:
+    name: Build & Push to AWS ECR
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
+
+    outputs:
+      ventas-image: ${{ steps.ecr-images.outputs.ventas-image }}
+      despacho-image: ${{ steps.ecr-images.outputs.despacho-image }}
+      frontend-image: ${{ steps.ecr-images.outputs.frontend-image }}
+      version: ${{ steps.build-tag.outputs.VERSION }}
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔐 Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: 🔑 Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🏷️ Generate build tag
+        id: build-tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            VERSION=${{ github.sha }}
+          fi
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Short SHA: ${VERSION:0:8}"
+
+      # Create ECR repositories if they don't exist
+      - name: 🗂️ Create ECR repositories
+        run: |
+          for repo in ${{ env.ECR_REPOSITORY_VENTAS }} ${{ env.ECR_REPOSITORY_DESPACHO }} ${{ env.ECR_REPOSITORY_FRONTEND }}; do
+            aws ecr describe-repositories --repository-names $repo --region ${{ env.AWS_REGION }} 2>/dev/null || \
+            aws ecr create-repository \
+              --repository-name $repo \
+              --region ${{ env.AWS_REGION }} \
+              --encryption-configuration encryptionType=AES \
+              --image-scanning-configuration scanOnPush=true \
+              --image-tag-mutability IMMUTABLE || true
+          done
+
+      # ==================== BUILD & PUSH VENTAS API ====================
+      - name: 🏗️ Build, tag, and push Ventas API to ECR
+        id: ventas-push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./back-Ventas_SpringBoot/Springboot-API-REST
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_VENTAS }}:latest
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_VENTAS }}:${{ steps.build-tag.outputs.VERSION }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_VENTAS }}:build-${{ github.run_number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ==================== BUILD & PUSH DESPACHO API ====================
+      - name: 🏗️ Build, tag, and push Despacho API to ECR
+        id: despacho-push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_DESPACHO }}:latest
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_DESPACHO }}:${{ steps.build-tag.outputs.VERSION }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_DESPACHO }}:build-${{ github.run_number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ==================== BUILD & PUSH FRONTEND ====================
+      - name: 🏗️ Build, tag, and push Frontend to ECR
+        id: frontend-push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./front_despacho
+          push: true
+          build-args: |
+            VITE_API_URL_VENTAS=${{ secrets.VITE_API_URL_VENTAS }}
+            VITE_API_URL_DESPACHOS=${{ secrets.VITE_API_URL_DESPACHOS }}
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_FRONTEND }}:latest
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_FRONTEND }}:${{ steps.build-tag.outputs.VERSION }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_FRONTEND }}:build-${{ github.run_number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 📋 Set image outputs
+        id: ecr-images
+        run: |
+          REGISTRY=${{ steps.login-ecr.outputs.registry }}
+          VERSION=${{ steps.build-tag.outputs.VERSION }}
+          echo "ventas-image=${REGISTRY}/${{ env.ECR_REPOSITORY_VENTAS }}:${VERSION}" >> $GITHUB_OUTPUT
+          echo "despacho-image=${REGISTRY}/${{ env.ECR_REPOSITORY_DESPACHO }}:${VERSION}" >> $GITHUB_OUTPUT
+          echo "frontend-image=${REGISTRY}/${{ env.ECR_REPOSITORY_FRONTEND }}:${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: 🎉 ECR Push Summary
+        run: |
+          echo "## 🐳 Docker Images Pushed to AWS ECR" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ steps.build-tag.outputs.VERSION }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Service | Image |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Ventas API | \`${{ steps.ecr-images.outputs.ventas-image }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Despacho API | \`${{ steps.ecr-images.outputs.despacho-image }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend | \`${{ steps.ecr-images.outputs.frontend-image }}\` |" >> $GITHUB_STEP_SUMMARY
+
+  # ==================== DEPLOY WITH TERRAFORM ====================
+  deploy-terraform:
+    name: Deploy Infrastructure (Terraform)
+    runs-on: ubuntu-latest
+    needs: build-and-push-ecr
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔐 Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: 🏗️ Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.0
+          terraform_wrapper: false
+
+      - name: 📂 Initialize Terraform
+        run: |
+          cd terraform
+          terraform init \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=main/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="encrypt=true" \
+            -backend-config="dynamodb_table=${{ secrets.TF_STATE_DYNAMODB }}"
+
+      - name: 📋 Terraform Plan
+        id: plan
+        run: |
+          cd terraform
+          terraform plan \
+            -var="ventas_api_image=${{ needs.build-and-push-ecr.outputs.ventas-image }}" \
+            -var="despacho_api_image=${{ needs.build-and-push-ecr.outputs.despacho-image }}" \
+            -var="frontend_image=${{ needs.build-and-push-ecr.outputs.frontend-image }}" \
+            -var="app_version=${{ needs.build-and-push-ecr.outputs.version }}" \
+            -var="environment=production" \
+            -out=tfplan
+        continue-on-error: true
+
+      - name: 💬 Add plan comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = `${{ steps.plan.outputs.stdout }}`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 📋 Terraform Plan\n\`\`\`\n${plan}\n\`\`\``
+            });
+
+      - name: 🚀 Apply Terraform changes (only on push to main)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          cd terraform
+          terraform apply \
+            -var="ventas_api_image=${{ needs.build-and-push-ecr.outputs.ventas-image }}" \
+            -var="despacho_api_image=${{ needs.build-and-push-ecr.outputs.despacho-image }}" \
+            -var="frontend_image=${{ needs.build-and-push-ecr.outputs.frontend-image }}" \
+            -var="app_version=${{ needs.build-and-push-ecr.outputs.version }}" \
+            -var="environment=production" \
+            -auto-approve \
+            tfplan
+
+      - name: 📊 Output infrastructure details
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          cd terraform
+          echo "## ✅ Infrastructure Deployed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**ALB URL:**" >> $GITHUB_STEP_SUMMARY
+          terraform output -raw alb_dns_name >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**RDS Endpoint:**" >> $GITHUB_STEP_SUMMARY
+          terraform output -raw rds_endpoint >> $GITHUB_STEP_SUMMARY
+
+  # ==================== NOTIFICATION ====================
+  notify:
+    name: Notify Deployment
+    runs-on: ubuntu-latest
+    needs: [build-and-push-ecr, deploy-terraform]
+    if: always()
+
+    steps:
+      - name: 📬 Deployment Status
+        run: |
+          if [ "${{ needs.build-and-push-ecr.result }}" == "success" ] && [ "${{ needs.deploy-terraform.result }}" == "success" ]; then
+            echo "✅ Deployment successful!"
+            exit 0
+          else
+            echo "❌ Deployment failed!"
+            exit 1
+          fi

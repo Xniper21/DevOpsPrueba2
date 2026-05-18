@@ -1,0 +1,36 @@
+# Terraform Variables Example
+# Copy this file to terraform.tfvars and fill in the values
+
+aws_region = "us-east-1"
+project_name = "innovatech"
+environment = "production"
+
+vpc_cidr = "10.0.0.0/16"
+container_port = 8080
+
+# Container Images (from ECR)
+ventas_api_image     = "YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/innovatech/ventas-api:latest"
+despacho_api_image   = "YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/innovatech/despacho-api:latest"
+frontend_image       = "YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/innovatech/frontend:latest"
+
+app_version = "1.0.0"
+
+# Database Configuration
+db_engine_version   = "8.0.35"
+db_instance_class   = "db.t3.micro"  # Use db.t3.small or db.t3.medium for production
+db_allocated_storage = 20
+db_username         = "innovatech"
+db_password         = "ChangeMe!123456"  # Use a strong password, stored in AWS Secrets Manager
+
+# ECS Configuration
+ecs_task_cpu     = "256"
+ecs_task_memory  = "512"
+ecs_desired_count = 2
+enable_autoscaling = true
+
+# Common Tags
+common_tags = {
+  Terraform   = "true"
+  Project     = "Innovatech"
+  Environment = "Production"
+}
